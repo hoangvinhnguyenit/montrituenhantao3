@@ -3,6 +3,8 @@
 
 import streamlit as st
 
+from data_repository import get_supabase_configuration, load_latest_dataset_snapshot
+
 
 STATE_DEFAULTS = {
     "raw_df": None,
@@ -25,6 +27,8 @@ STATE_DEFAULTS = {
     "inventory_plan": None,
     "selected_store": "Tất cả cửa hàng",
     "selected_family": "Tất cả nhóm hàng",
+    "dataset_restore_attempted": False,
+    "dataset_restore_error": None,
 }
 
 
@@ -41,6 +45,34 @@ def initialize_session_state() -> None:
     for key, value in STATE_DEFAULTS.items():
         if key not in st.session_state:
             st.session_state[key] = value
+    if st.session_state.dataset_restore_attempted:
+        if st.session_state.dataset_restore_error:
+            st.error(
+                "Không thể tự khôi phục dữ liệu từ Supabase: "
+                f"{st.session_state.dataset_restore_error}"
+            )
+        return
+
+    st.session_state.dataset_restore_attempted = True
+    if st.session_state.raw_df is not None:
+        return
+    url, key = get_supabase_configuration()
+    if not url or not key:
+        return
+
+    try:
+        snapshot = load_latest_dataset_snapshot()
+    except (RuntimeError, ValueError) as exc:
+        st.session_state.dataset_restore_error = str(exc)
+        st.error(f"Không thể tự khôi phục dữ liệu từ Supabase: {exc}")
+        return
+    if snapshot is None:
+        return
+    _, sales, test, tables, source_label = snapshot
+    st.session_state.raw_df = sales
+    st.session_state.test_df = test
+    st.session_state.source_tables = tables
+    st.session_state.source_label = source_label
 
 
 def get_active_sales():

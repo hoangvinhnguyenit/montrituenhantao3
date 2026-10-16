@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import zipfile
 from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
@@ -24,6 +27,10 @@ ERD_TABLES = (
     "holidays_events",
     "sample_submission",
 )
+
+SNAPSHOT_TABLE = "app_dataset_snapshots"
+SNAPSHOT_ROWS_TABLE = "app_dataset_snapshot_rows"
+SNAPSHOT_BATCH_SIZE = 500
 
 TABLE_ALIASES = {
     "train": "train2",
@@ -244,13 +251,179 @@ def normalize_erd_tables(
 
 def get_supabase_configuration() -> tuple[str | None, str | None]:
     """Read server-side credentials from environment variables or Streamlit secrets."""
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+
+    if url and key:
+        return url, key
+
     try:
         secrets = st.secrets
     except FileNotFoundError:
         secrets = {}
-    url = os.getenv("SUPABASE_URL") or secrets.get("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY") or secrets.get("SUPABASE_KEY")
+
+    url = url or secrets.get("SUPABASE_URL")
+    key = key or secrets.get("SUPABASE_KEY")
     return url, key
+
+
+@st.cache_resource
+def _create_supabase_client(url: str, key: str) -> Any:
+    try:
+        from supabase import create_client
+    except ImportError as exc:
+        raise RuntimeError(
+            "Thiếu gói supabase-py. Cài bằng `pip install supabase` để bật nguồn này."
+        ) from exc
+    return create_client(url, key)
+
+
+def _get_supabase_client() -> Any:
+    url, key = get_supabase_configuration()
+    if not url or not key:
+        raise ValueError("Hãy cấu hình SUPABASE_URL và SUPABASE_KEY ở môi trường máy chủ.")
+    return _create_supabase_client(url, key)
+
+
+def _execute_supabase_query(query: Any) -> Any:
+    try:
+        from httpx import HTTPError
+        from postgrest.exceptions import APIError
+    except ImportError as exc:
+        raise RuntimeError(
+            "Thiếu gói supabase-py. Cài dependencies bằng `pip install -r requirements.txt`."
+        ) from exc
+    try:
+        return query.execute()
+    except (APIError, HTTPError) as exc:
+        raise RuntimeError(f"Yêu cầu Supabase thất bại: {exc}") from exc
+
+
+def save_dataset_snapshot(tables: dict[str, pd.DataFrame], source_label: str) -> str:
+    """Persist one immutable dataset snapshot and its rows in Supabase."""
+    if not tables:
+        raise ValueError("Không có bảng dữ liệu để lưu.")
+
+    client = _get_supabase_client()
+    snapshot_id = str(uuid4())
+    table_metadata = {
+        name: {"columns": [str(column) for column in frame.columns], "row_count": len(frame)}
+        for name, frame in tables.items()
+    }
+    _execute_supabase_query(
+        client.table(SNAPSHOT_TABLE).insert(
+            {
+                "id": snapshot_id,
+                "source_label": source_label,
+                "table_metadata": table_metadata,
+                "is_complete": False,
+            }
+        )
+    )
+
+    for table_name, frame in tables.items():
+        records = json.loads(frame.to_json(orient="records", date_format="iso"))
+        for start in range(0, len(records), SNAPSHOT_BATCH_SIZE):
+            batch = records[start : start + SNAPSHOT_BATCH_SIZE]
+            _execute_supabase_query(
+                client.table(SNAPSHOT_ROWS_TABLE).insert(
+                    [
+                        {
+                            "snapshot_id": snapshot_id,
+                            "table_name": table_name,
+                            "row_index": start + index,
+                            "row_data": record,
+                        }
+                        for index, record in enumerate(batch)
+                    ]
+                )
+            )
+
+    _execute_supabase_query(
+        client.table(SNAPSHOT_TABLE)
+        .update({"is_complete": True})
+        .eq("id", snapshot_id)
+    )
+    return snapshot_id
+
+
+def list_dataset_snapshots(limit: int = 20) -> list[dict]:
+    """Return recent complete snapshots, newest first."""
+    if limit < 1:
+        raise ValueError("Giới hạn snapshot phải lớn hơn 0.")
+    response = _execute_supabase_query(
+        _get_supabase_client()
+        .table(SNAPSHOT_TABLE)
+        .select("id, created_at, source_label, table_metadata")
+        .eq("is_complete", True)
+        .order("created_at", desc=True)
+        .limit(limit)
+    )
+    return response.data or []
+
+
+def load_dataset_snapshot(
+    snapshot_id: str,
+) -> tuple[pd.DataFrame, pd.DataFrame | None, dict[str, pd.DataFrame], str]:
+    """Restore source tables from one complete Supabase snapshot."""
+    client = _get_supabase_client()
+    header_response = _execute_supabase_query(
+        client.table(SNAPSHOT_TABLE)
+        .select("source_label, table_metadata")
+        .eq("id", snapshot_id)
+        .eq("is_complete", True)
+        .limit(1)
+    )
+    if not header_response.data:
+        raise ValueError("Không tìm thấy snapshot hoàn chỉnh đã chọn.")
+    header = header_response.data[0]
+    table_metadata = header["table_metadata"]
+    tables: dict[str, pd.DataFrame] = {}
+
+    for table_name, metadata in table_metadata.items():
+        rows = []
+        offset = 0
+        while True:
+            response = _execute_supabase_query(
+                client.table(SNAPSHOT_ROWS_TABLE)
+                .select("row_index, row_data")
+                .eq("snapshot_id", snapshot_id)
+                .eq("table_name", table_name)
+                .order("row_index")
+                .range(offset, offset + 999)
+            )
+            batch = response.data or []
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += len(batch)
+        tables[table_name] = pd.DataFrame(
+            [row["row_data"] for row in rows],
+            columns=metadata["columns"],
+        )
+
+    if "train2" in tables:
+        sales, test = normalize_erd_tables(tables)
+    elif "generic_sales" in tables:
+        sales = load_sales_data(
+            io.BytesIO(tables["generic_sales"].to_csv(index=False).encode("utf-8"))
+        )
+        test = None
+    else:
+        raise ValueError("Snapshot không có bảng doanh số để khôi phục.")
+
+    return sales, test, tables, header["source_label"]
+
+
+def load_latest_dataset_snapshot(
+) -> tuple[str, pd.DataFrame, pd.DataFrame | None, dict[str, pd.DataFrame], str] | None:
+    """Restore the latest complete snapshot, if one exists."""
+    snapshots = list_dataset_snapshots(limit=1)
+    if not snapshots:
+        return None
+    snapshot = snapshots[0]
+    sales, test, tables, source_label = load_dataset_snapshot(snapshot["id"])
+    return snapshot["id"], sales, test, tables, source_label
 
 
 def load_supabase_sources(

@@ -14,17 +14,34 @@ streamlit run app.py
 
 ## Các trang
 
-1. **Dashboard** — tổng quan doanh số, trạng thái mô hình, dự báo và tồn kho.
-2. **Dữ liệu** — nhập CSV/Excel/ZIP hoặc tải mẫu theo ERD.
-3. **Tiền xử lý & Feature Engineering** — xử lý thiếu, trùng, outlier; tạo đặc
-   trưng lịch, lag và rolling không dùng dữ liệu tương lai.
-4. **Phân tích EDA** — xu hướng, mùa vụ, nhóm hàng/cửa hàng, khuyến mãi, ngày lễ,
-   giá dầu và outlier.
-5. **Huấn luyện mô hình** — LSTM/GRU với chia train/validation theo thời gian và
-   các chỉ số MAE, RMSE, MAPE, WAPE.
-6. **Dự báo doanh số** — dự báo đệ quy từ mô hình đã huấn luyện và xuất CSV.
-7. **Quản trị tồn kho** — Safety Stock, ROP, EOQ, mô phỏng tồn kho và ABC.
-8. **Báo cáo tổng hợp** — tải dự báo, phân loại ABC và dữ liệu đã xử lý.
+- **Mô hình huấn luyện** — huấn luyện LSTM/GRU (Deep Learning) và xem kết quả
+  kiểm định trên dữ liệu đang mở.
+- **Dự báo doanh số** — tạo dự báo từ mô hình đã huấn luyện và tải CSV.
+- **Tạo đặc trưng dự báo** — tạo, xem và tải thông tin lịch, khuyến mãi, độ trễ
+  và trung bình trượt để phục vụ phân tích, dự báo.
+- **Tiền xử lý dữ liệu** — kiểm tra dữ liệu thiếu/trùng/outlier và làm sạch dữ
+  liệu nguồn.
+- **Phân tích dữ liệu (EDA)** — cơ cấu doanh số, bản đồ và hiệu suất cửa hàng, thư
+  viện kiến thức, trợ lý tra cứu, khuyến mãi, ngày lễ, giá dầu và outlier. Bản
+  đồ hiển thị khi dữ liệu có thành phố khớp với danh mục vị trí Ecuador; trợ lý
+  tra cứu dựa trên `knowledge_base.json`.
+- **Phân tích xu hướng bán hàng** — xu hướng theo ngày/tuần/tháng, mùa vụ theo
+  thứ và nhóm hàng nổi bật.
+- **Đánh giá mô hình** — benchmark Favorita có sẵn, backtest và thử nghiệm loại
+  bỏ từng nguồn dữ liệu.
+- **Dashboard** — tổng quan doanh số, trạng thái mô hình, dự báo và tồn kho.
+- **Tồn kho an toàn & Đặt hàng lại** — mức dự trữ an toàn, điểm cần đặt hàng
+  lại, lượng đặt tối ưu, mô phỏng tồn kho và phân loại ABC.
+- **Cảnh báo tồn kho** — đối chiếu tồn kho người dùng nhập với nhu cầu 28 ngày
+  gần nhất theo nhóm hàng.
+- **Dữ liệu bán hàng** — nhập CSV/Excel/ZIP, kết nối Supabase hoặc tải dữ liệu
+  mẫu theo ERD.
+- **Báo cáo tổng hợp** — xem và tải dự báo, phân loại ABC và dữ liệu hiện hành.
+
+Benchmark trên trang **Đánh giá mô hình** là kết quả cố định từ bộ Favorita;
+trang **Mô hình huấn luyện** huấn luyện mô hình trên dữ liệu trong phiên hiện tại.
+Tồn kho thực tế không nằm trong ERD, vì vậy các trang tồn kho cần người dùng
+nhập số lượng hiện có.
 
 ## Định dạng dữ liệu
 
@@ -68,12 +85,53 @@ SUPABASE_URL = "https://<project>.supabase.co"
 SUPABASE_KEY = "<key-with-appropriate-RLS-policies>"
 ```
 
+Để lưu dữ liệu tải lên và khôi phục sau khi mở lại ứng dụng, tạo thêm hai bảng
+snapshot trong Supabase SQL Editor:
+
+```sql
+create table if not exists public.app_dataset_snapshots (
+    id uuid primary key,
+    created_at timestamptz not null default now(),
+    source_label text not null,
+    table_metadata jsonb not null,
+    is_complete boolean not null default false
+);
+
+create table if not exists public.app_dataset_snapshot_rows (
+    snapshot_id uuid not null references public.app_dataset_snapshots(id) on delete cascade,
+    table_name text not null,
+    row_index bigint not null,
+    row_data jsonb not null,
+    primary key (snapshot_id, table_name, row_index)
+);
+
+create index if not exists app_dataset_snapshots_latest_idx
+    on public.app_dataset_snapshots (created_at desc)
+    where is_complete = true;
+
+alter table public.app_dataset_snapshots enable row level security;
+alter table public.app_dataset_snapshot_rows enable row level security;
+grant select, insert, update on public.app_dataset_snapshots to service_role;
+grant select, insert on public.app_dataset_snapshot_rows to service_role;
+```
+
+Trong cấu hình máy chủ Streamlit, đặt `SUPABASE_KEY` thành secret/service-role
+key có quyền truy cập các bảng snapshot; không dùng key này trong trình duyệt,
+không ghi vào repository và không chia sẻ công khai. Sau khi nạp file hoặc tạo
+dữ liệu mẫu, ứng dụng tự lưu một snapshot mới mà không xóa các snapshot cũ.
+Khi khởi tạo phiên mới, ứng dụng tự khôi phục snapshot hoàn chỉnh mới nhất;
+trang **Dữ liệu → Supabase** cũng cho phép chọn và khôi phục snapshot cũ.
+
 Sau khi cài dependencies từ `requirements.txt`, ứng dụng đọc dữ liệu ở phía
 máy chủ và giới hạn số dòng gần nhất của `train2`/`test`. Dùng nút **Nạp từ
 Supabase** trong trang Dữ liệu để tải dữ liệu vào phiên làm việc.
 
 Đảm bảo các bảng `train2`, `test`, `stores`, `transactions`, `oil`,
 `holidays_events`, `sample_submission` tồn tại với quyền `SELECT` cần thiết.
-Ưu tiên khóa anon/publishable với chính sách RLS phù hợp. Nếu buộc phải dùng
-service-role key, chỉ lưu trong môi trường máy chủ tin cậy; tuyệt đối không đưa
-khóa đó vào trình duyệt hoặc repository.
+Với các bảng nguồn hiện có, có thể dùng khóa anon/publishable kèm chính sách
+RLS chỉ đọc phù hợp. Tính năng snapshot cần quyền ghi; chỉ dùng secret/service-role
+key trong môi trường máy chủ tin cậy và tuyệt đối không đưa khóa đó vào trình
+duyệt hoặc repository.
+
+Snapshot chỉ lưu các bảng dữ liệu nguồn đã nạp; trạng thái mô hình đã huấn luyện,
+kết quả dự báo và dữ liệu tiền xử lý không được snapshot.

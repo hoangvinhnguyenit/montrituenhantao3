@@ -1,0 +1,17 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Streamlit: run app.py",
+			"type": "shell",
+			"command": "streamlit",
+			"args": [
+				"run",
+				"app.py"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}

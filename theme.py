@@ -10,16 +10,17 @@ import streamlit as st
 TITLE = "DỰ BÁO DOANH SỐ & QUẢN TRỊ TỒN KHO"
 SUBTITLE = "NHÓM 1: Nguyễn Thị Diệu Hiền - Nguyễn Hoàng Vinh"
 
-# Màu cho 8 trang theo thứ tự trong st.navigation (khớp bảng màu c1..c7 của index.html)
+# Màu cho các trang theo thứ tự trong st.navigation.
 MENU_COLORS = [
     ("#34d399", "#059669"),  # Dashboard
     ("#fb923c", "#ea580c"),  # Dữ liệu
     ("#fbbf24", "#d97706"),  # Tiền xử lý
     ("#818cf8", "#4338ca"),  # Phân tích EDA
-    ("#a78bfa", "#7c3aed"),  # Huấn luyện mô hình
+    ("#a78bfa", "#7c3aed"),  # Mô hình & Kết quả
     ("#38bdf8", "#0284c7"),  # Dự báo doanh số
     ("#fb7185", "#e11d48"),  # Quản trị tồn kho
     ("#2dd4bf", "#0f766e"),  # Báo cáo tổng hợp
+    ("#c084fc", "#9333ea"),  # Huấn luyện LSTM/GRU
 ]
 KPI_GRADIENTS = [
     ("#10b981", "#047857"),

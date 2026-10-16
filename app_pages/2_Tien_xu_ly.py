@@ -5,16 +5,16 @@ import plotly.express as px
 import streamlit as st
 
 from app_common import configure_page, initialize_session_state, show_data_required
-from utils import clean_sales_data, engineer_features
+from utils import clean_sales_data
 
 
-configure_page("Tiền xử lý & đặc trưng")
+configure_page("Tiền xử lý dữ liệu")
 initialize_session_state()
 
-st.title("Tiền xử lý & Feature Engineering")
+st.title("Tiền xử lý dữ liệu")
 st.caption(
-    "Làm sạch dữ liệu có kiểm soát; tạo lag, trung bình trượt và đặc trưng lịch "
-    "trước khi đưa vào mô hình."
+    "Kiểm tra chất lượng, xử lý dữ liệu thiếu, bản ghi trùng và giá trị ngoại lệ "
+    "trước khi phân tích."
 )
 
 raw = st.session_state.raw_df
@@ -57,20 +57,21 @@ if st.button("Làm sạch và tạo đặc trưng", type="primary"):
             remove_duplicates=remove_duplicates,
             cap_outliers=cap_outliers,
         )
-        st.session_state.processed_df = engineer_features(cleaned)
+        st.session_state.processed_df = cleaned
         st.success(
             f"Hoàn tất: {len(cleaned):,} dòng sau làm sạch. "
-            "Doanh số nguồn vẫn được giữ nguyên."
+            "Doanh số nguồn vẫn được giữ nguyên; có thể tạo đặc trưng ở trang "
+            "**Tạo đặc trưng dự báo**."
         )
     except ValueError as exc:
         st.error(f"Không thể xử lý dữ liệu: {exc}")
 
 processed = st.session_state.processed_df
 if processed is not None:
-    st.subheader("Dữ liệu đã xử lý và đặc trưng tạo mới")
+    st.subheader("Bản xem trước dữ liệu đã làm sạch")
     st.caption(
-        "lag_1/7/28 và rolling_mean_7/28 chỉ dùng các giá trị trước ngày hiện tại "
-        "để tránh rò rỉ dữ liệu tương lai."
+        "Đặc trưng lịch, độ trễ và trung bình trượt được xem ở trang "
+        "**Tạo đặc trưng dự báo**."
     )
     st.dataframe(processed.head(50), width="stretch", hide_index=True)
     csv = processed.to_csv(index=False).encode("utf-8-sig")

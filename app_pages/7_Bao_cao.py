@@ -34,7 +34,7 @@ columns[3].metric(
 metrics = st.session_state.test_metrics
 st.subheader("Đánh giá mô hình")
 if metrics is None:
-    st.info("Chưa có kết quả. Huấn luyện mô hình ở trang **Huấn luyện mô hình**.")
+    st.info("Chưa có kết quả. Huấn luyện mô hình ở trang **Mô hình huấn luyện**.")
 else:
     metric_cols = st.columns(4)
     for column, name in zip(metric_cols, ("MAE", "RMSE", "MAPE (%)", "WAPE (%)")):

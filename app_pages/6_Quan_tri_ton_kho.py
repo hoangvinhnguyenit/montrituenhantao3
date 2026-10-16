@@ -9,13 +9,15 @@ from app_common import configure_page, get_active_sales, initialize_session_stat
 from inventory import abc_classification, build_inventory_plan
 
 
-configure_page("Quản trị tồn kho")
+configure_page("Tồn kho an toàn & Đặt hàng lại")
 initialize_session_state()
 
-st.title("Quản trị tồn kho")
+st.title("Tồn kho an toàn & Đặt hàng lại")
 st.caption(
-    "ROP, safety stock và EOQ được ước tính từ dự báo. ERD hiện không có bảng "
-    "tồn kho, vì vậy tồn kho hiện tại được nhập thủ công."
+    "Ước tính lượng dự trữ an toàn và mức cần đặt hàng lại từ dự báo. "
+    "Điểm đặt hàng lại (ROP) và lượng đặt tối ưu (EOQ) được tính từ nhu cầu; "
+    "tồn kho thực tế hiện cần nhập thủ công. Để kiểm tra theo từng nhóm hàng, "
+    "mở trang **Cảnh báo tồn kho**."
 )
 
 forecast = st.session_state.forecast_result
